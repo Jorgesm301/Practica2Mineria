@@ -1,175 +1,385 @@
-import pandas as pd
+import time
+import tracemalloc
+
+import matplotlib.pyplot as plt
 import numpy as np
-
-# Cargar dataset reducido
-df = pd.read_csv("news_reducido.csv")
-
-# Eliminar columnas basura
-cols_basura = [c for c in df.columns if c.startswith("Unnamed")]
-df = df.drop(columns=cols_basura)
-
-# Rellenar nulos en columnas de texto
-for col in ["headline", "short_description", "text", "authors"]:
-    if col in df.columns:
-        df[col] = df[col].fillna("")
-
-# Crear columna de texto final
-df["content"] = (
-    df["headline"].astype(str) + " " +
-    df["short_description"].astype(str) + " " +
-    df["text"].astype(str)
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.decomposition import TruncatedSVD
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.manifold import TSNE
+from sklearn.metrics import (
+    accuracy_score,
+    adjusted_rand_score,
+    calinski_harabasz_score,
+    davies_bouldin_score,
+    f1_score,
+    normalized_mutual_info_score,
+    silhouette_score,
 )
-
-# Mostrar comprobaciones
-print(df.shape)
-print(df.columns)
-print(df["category"].value_counts())
-print(df["content"].head())
-
+from sklearn.mixture import GaussianMixture
+from sklearn.model_selection import StratifiedKFold
+from sklearn.naive_bayes import GaussianNB, MultinomialNB
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
-# Variable de entrada (texto)
-X_text = df["content"]
 
-# Variable objetivo (clase)
-y = df["category"]
-
-# Convertir etiquetas a números
-le = LabelEncoder()
-y_encoded = le.fit_transform(y)
-
-# Comprobaciones
-print("Ejemplo texto:")
-print(X_text.iloc[0])
-
-print("\nEtiqueta original:", y.iloc[0])
-print("Etiqueta codificada:", y_encoded[0])
-
-print("\nClases:")
-print(le.classes_)
-
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-
-# Representación binaria
-vect_bin = CountVectorizer(binary=True, stop_words='english', min_df=2)
-X_bin = vect_bin.fit_transform(X_text)
-
-# Representación por frecuencia
-vect_freq = CountVectorizer(binary=False, stop_words='english', min_df=2)
-X_freq = vect_freq.fit_transform(X_text)
-
-# Representación TF-IDF
-vect_tfidf = TfidfVectorizer(stop_words='english', min_df=2)
-X_tfidf = vect_tfidf.fit_transform(X_text)
-
-# Comprobaciones
-print("Forma X_bin:", X_bin.shape)
-print("Forma X_freq:", X_freq.shape)
-print("Forma X_tfidf:", X_tfidf.shape)
-
-print("\nNúmero de términos binaria:", len(vect_bin.get_feature_names_out()))
-print("Número de términos frecuencia:", len(vect_freq.get_feature_names_out()))
-print("Número de términos tfidf:", len(vect_tfidf.get_feature_names_out()))
-
-print("\nPrimeros 20 términos:")
-print(vect_tfidf.get_feature_names_out()[:20])
-
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score, adjusted_rand_score, normalized_mutual_info_score
+SEEDS = [0, 10, 42, 100]
+K_CLUSTERS = 4
 
 
-def clustering_experimento(X, y, nombre):
-    print(f"\n--- {nombre} ---")
-
-    kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
-    labels = kmeans.fit_predict(X)
-
-    # Métrica interna
-    sil = silhouette_score(X, labels)
-
-    # Métricas externas
-    ari = adjusted_rand_score(y, labels)
-    nmi = normalized_mutual_info_score(y, labels)
-
-    print("Silhouette:", sil)
-    print("ARI:", ari)
-    print("NMI:", nmi)
+def medir_memoria_y_tiempo(func, *args, **kwargs):
+    """Ejecuta una funcion y devuelve resultado, tiempo y pico de memoria en MB."""
+    tracemalloc.start()
+    inicio = time.perf_counter()
+    salida = func(*args, **kwargs)
+    fin = time.perf_counter()
+    _, memoria_pico = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return salida, fin - inicio, memoria_pico / (1024 * 1024)
 
 
-# Ejecutar para cada representación
-clustering_experimento(X_bin, y_encoded, "Binaria")
-clustering_experimento(X_freq, y_encoded, "Frecuencia")
-clustering_experimento(X_tfidf, y_encoded, "TF-IDF")
+def cargar_datos(path_csv="news_reducido.csv"):
+    df = pd.read_csv(path_csv)
+    cols_basura = [c for c in df.columns if c.startswith("Unnamed")]
+    if cols_basura:
+        df = df.drop(columns=cols_basura)
 
-def clustering_semillas(X, y, nombre):
-    print(f"\n--- {nombre} (diferentes semillas) ---")
+    # Requisito del usuario: usar solo text para todo.
+    df["text"] = df["text"].fillna("").astype(str)
+    df["category"] = df["category"].astype(str)
 
-    for seed in [0, 10, 42, 100]:
-        kmeans = KMeans(n_clusters=4, random_state=seed, n_init=10)
-        labels = kmeans.fit_predict(X)
+    X_text = df["text"]
+    y = df["category"]
 
-        ari = adjusted_rand_score(y, labels)
-        nmi = normalized_mutual_info_score(y, labels)
+    le = LabelEncoder()
+    y_encoded = le.fit_transform(y)
 
-        print(f"Seed {seed} -> ARI: {ari:.4f} | NMI: {nmi:.4f}")
-
-
-# Probar distintas semillas en TF-IDF
-clustering_semillas(X_tfidf, y_encoded, "TF-IDF")
-
-
-# Mejor modelo (según resultados)
-kmeans_best = KMeans(n_clusters=4, random_state=10, n_init=10)
-labels_best = kmeans_best.fit_predict(X_tfidf)
-
-# Guardar en dataframe
-df_result = df.copy()
-df_result["cluster"] = labels_best
-
-# Guardar a CSV
-df_result[["content", "category", "cluster"]].to_csv("clusters_resultado.csv", index=False)
-
-print("\nClusters guardados en clusters_resultado.csv")
+    print("Forma dataset:", df.shape)
+    print("Distribucion de clases:\n", y.value_counts())
+    print("Clases codificadas:", list(le.classes_))
+    print("Ejemplo text:", X_text.iloc[0][:220], "...")
+    return df, X_text, y, y_encoded
 
 
+def construir_representaciones(X_text):
+    vect_bin = CountVectorizer(binary=True, stop_words="english", min_df=2)
+    vect_freq = CountVectorizer(binary=False, stop_words="english", min_df=2)
+    vect_tfidf = TfidfVectorizer(stop_words="english", min_df=2)
 
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
+    X_bin = vect_bin.fit_transform(X_text)
+    X_freq = vect_freq.fit_transform(X_text)
+    X_tfidf = vect_tfidf.fit_transform(X_text)
 
-# Convertir TF-IDF a denso (cuidado, tarda un poco)
-X_dense = X_tfidf.toarray()
+    representaciones = {
+        "Binaria": X_bin,
+        "Frecuencia": X_freq,
+        "TF-IDF": X_tfidf,
+    }
 
-# Reducir dimensiones
-tsne = TSNE(n_components=2, random_state=42, perplexity=30)
-X_2d = tsne.fit_transform(X_dense)
-
-# Dibujar clusters
-plt.figure(figsize=(8,6))
-plt.scatter(X_2d[:,0], X_2d[:,1], c=labels_best, s=5)
-plt.title("t-SNE de clusters (TF-IDF)")
-plt.xlabel("Dim 1")
-plt.ylabel("Dim 2")
-plt.show()
+    print("\nResumen representaciones:")
+    for nombre, X_rep in representaciones.items():
+        print(f"- {nombre}: {X_rep.shape}")
+    return representaciones
 
 
+def evaluar_clustering(X, labels, y_true):
+    # CH/DB necesitan entrada densa; reducimos antes para evitar consumir GB de RAM.
+    if hasattr(X, "toarray"):
+        svd_eval = TruncatedSVD(n_components=50, random_state=42)
+        X_eval_dense = svd_eval.fit_transform(X)
+    else:
+        X_eval_dense = X
+
+    return {
+        "silhouette": silhouette_score(X, labels, sample_size=2000, random_state=42),
+        "calinski_harabasz": calinski_harabasz_score(X_eval_dense, labels),
+        "davies_bouldin": davies_bouldin_score(X_eval_dense, labels),
+        "ari": adjusted_rand_score(y_true, labels),
+        "nmi": normalized_mutual_info_score(y_true, labels),
+    }
 
 
-from sklearn.mixture import GaussianMixture
-from sklearn.decomposition import TruncatedSVD
+def ejecutar_agrupamiento(df, representaciones, y_encoded):
+    filas_clustering = []
 
-print("\n--- Gaussian Mixture (TF-IDF) ---")
+    print("\n=== 3.2 Agrupamiento: KMeans (K=4) con 3+ semillas ===")
+    for rep_nombre, X in representaciones.items():
+        print(f"\n[{rep_nombre}]")
+        for seed in SEEDS:
+            kmeans = KMeans(n_clusters=K_CLUSTERS, random_state=seed, n_init=10)
+            labels, duracion, memoria = medir_memoria_y_tiempo(kmeans.fit_predict, X)
+            metricas = evaluar_clustering(X, labels, y_encoded)
 
-# Reducir dimensionalidad (IMPORTANTE)
-svd = TruncatedSVD(n_components=100, random_state=42)
-X_red = svd.fit_transform(X_tfidf)
+            fila = {
+                "algoritmo": "KMeans",
+                "representacion": rep_nombre,
+                "seed": seed,
+                "tiempo_s": duracion,
+                "memoria_mb": memoria,
+                **metricas,
+            }
+            filas_clustering.append(fila)
+            print(
+                f"Seed {seed} | ARI={metricas['ari']:.4f} NMI={metricas['nmi']:.4f} "
+                f"Sil={metricas['silhouette']:.4f}"
+            )
 
-# Modelo GMM
-gmm = GaussianMixture(n_components=4, random_state=42)
-labels_gmm = gmm.fit_predict(X_red)
+    # EM solo en TF-IDF
+    print("\n=== EM (GaussianMixture) solo en TF-IDF ===")
+    X_tfidf = representaciones["TF-IDF"]
+    svd = TruncatedSVD(n_components=100, random_state=42)
+    X_tfidf_red = svd.fit_transform(X_tfidf)
+    for seed in SEEDS:
+        gmm = GaussianMixture(n_components=K_CLUSTERS, random_state=seed)
+        labels_gmm, duracion, memoria = medir_memoria_y_tiempo(gmm.fit_predict, X_tfidf_red)
+        metricas = {
+            "silhouette": silhouette_score(X_tfidf_red, labels_gmm, sample_size=2000, random_state=42),
+            "calinski_harabasz": calinski_harabasz_score(X_tfidf_red, labels_gmm),
+            "davies_bouldin": davies_bouldin_score(X_tfidf_red, labels_gmm),
+            "ari": adjusted_rand_score(y_encoded, labels_gmm),
+            "nmi": normalized_mutual_info_score(y_encoded, labels_gmm),
+        }
+        filas_clustering.append(
+            {
+                "algoritmo": "GaussianMixture",
+                "representacion": "TF-IDF",
+                "seed": seed,
+                "tiempo_s": duracion,
+                "memoria_mb": memoria,
+                **metricas,
+            }
+        )
+        print(f"Seed {seed} | ARI={metricas['ari']:.4f} NMI={metricas['nmi']:.4f}")
 
-# Evaluación
-ari_gmm = adjusted_rand_score(y_encoded, labels_gmm)
-nmi_gmm = normalized_mutual_info_score(y_encoded, labels_gmm)
+    df_clustering = pd.DataFrame(filas_clustering)
+    df_clustering.to_csv("resultados_clustering.csv", index=False)
 
-print("ARI (GMM):", ari_gmm)
-print("NMI (GMM):", nmi_gmm)
+    # Seleccion del mejor clustering para guardar asignaciones.
+    mejores = df_clustering[df_clustering["algoritmo"] == "KMeans"].sort_values(
+        by=["ari", "nmi", "silhouette"], ascending=False
+    )
+    mejor = mejores.iloc[0]
+    print(
+        "\nMejor KMeans:",
+        f"rep={mejor['representacion']} seed={int(mejor['seed'])} ARI={mejor['ari']:.4f} NMI={mejor['nmi']:.4f}",
+    )
+
+    kmeans_best = KMeans(
+        n_clusters=K_CLUSTERS,
+        random_state=int(mejor["seed"]),
+        n_init=10,
+    )
+    labels_best = kmeans_best.fit_predict(representaciones[mejor["representacion"]])
+    df_asig = df[["text", "category"]].copy()
+    df_asig["cluster"] = labels_best
+    df_asig["representacion"] = mejor["representacion"]
+    df_asig["seed"] = int(mejor["seed"])
+    df_asig.to_csv("clusters_resultado.csv", index=False)
+    print("Asignaciones guardadas en clusters_resultado.csv")
+
+    # Visualizacion t-SNE del mejor clustering (sobre TF-IDF por consistencia).
+    X_tsne_base = representaciones["TF-IDF"]
+    svd_tsne = TruncatedSVD(n_components=50, random_state=42)
+    X_tsne_red = svd_tsne.fit_transform(X_tsne_base)
+    tsne = TSNE(n_components=2, random_state=42, perplexity=30, init="pca")
+    X_2d = tsne.fit_transform(X_tsne_red)
+
+    plt.figure(figsize=(9, 6))
+    plt.scatter(X_2d[:, 0], X_2d[:, 1], c=labels_best, s=6, alpha=0.7)
+    plt.title("t-SNE de clusters (labels del mejor KMeans)")
+    plt.xlabel("Dim 1")
+    plt.ylabel("Dim 2")
+    plt.tight_layout()
+    plt.savefig("tsne_clusters.png", dpi=200)
+    plt.close()
+    print("Visualizacion guardada en tsne_clusters.png")
+
+    return df_clustering
+
+
+def ejecutar_clasificacion(representaciones, y_encoded):
+    print("\n=== 3.3 Clasificacion: k-NN y Naive Bayes ===")
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    filas = []
+
+    # Al menos 5 combinaciones para k-NN.
+    configuraciones_knn = [
+        {"n_neighbors": 1, "weights": "uniform", "p": 1},
+        {"n_neighbors": 1, "weights": "uniform", "p": 2},
+        {"n_neighbors": 3, "weights": "uniform", "p": 2},
+        {"n_neighbors": 5, "weights": "distance", "p": 2},
+        {"n_neighbors": 7, "weights": "distance", "p": 1},
+    ]
+
+    for rep_nombre, X in representaciones.items():
+        print(f"\n[{rep_nombre}]")
+        for cfg in configuraciones_knn:
+            accs = []
+            f1s = []
+            t_total = 0.0
+            m_total = 0.0
+            for train_idx, test_idx in skf.split(X, y_encoded):
+                X_train, X_test = X[train_idx], X[test_idx]
+                y_train, y_test = y_encoded[train_idx], y_encoded[test_idx]
+
+                modelo = KNeighborsClassifier(
+                    n_neighbors=cfg["n_neighbors"],
+                    weights=cfg["weights"],
+                    p=cfg["p"],
+                    metric="minkowski",
+                    n_jobs=-1,
+                )
+
+                (_, y_pred), duracion, memoria = medir_memoria_y_tiempo(
+                    lambda: (modelo.fit(X_train, y_train), modelo.predict(X_test))
+                )
+                accs.append(accuracy_score(y_test, y_pred))
+                f1s.append(f1_score(y_test, y_pred, average="macro"))
+                t_total += duracion
+                m_total += memoria
+
+            filas.append(
+                {
+                    "algoritmo": "k-NN",
+                    "representacion": rep_nombre,
+                    "params": f"k={cfg['n_neighbors']},w={cfg['weights']},p={cfg['p']}",
+                    "accuracy_mean": float(np.mean(accs)),
+                    "f1_macro_mean": float(np.mean(f1s)),
+                    "tiempo_total_s": t_total,
+                    "memoria_media_mb": m_total / skf.n_splits,
+                }
+            )
+            print(
+                f"  k-NN {cfg['n_neighbors']}, {cfg['weights']}, p={cfg['p']} -> "
+                f"acc={np.mean(accs):.4f}, f1={np.mean(f1s):.4f}, tiempo={t_total:.2f}s"
+            )
+
+        # GaussianNB requiere denso; usamos reduccion para evitar explosion de memoria.
+        svd_nb = TruncatedSVD(n_components=200, random_state=42)
+        X_dense = svd_nb.fit_transform(X)
+        accs_g = []
+        f1s_g = []
+        t_total_g = 0.0
+        m_total_g = 0.0
+        for train_idx, test_idx in skf.split(X_dense, y_encoded):
+            X_train, X_test = X_dense[train_idx], X_dense[test_idx]
+            y_train, y_test = y_encoded[train_idx], y_encoded[test_idx]
+            modelo = GaussianNB()
+            (_, y_pred), duracion, memoria = medir_memoria_y_tiempo(
+                lambda: (modelo.fit(X_train, y_train), modelo.predict(X_test))
+            )
+            accs_g.append(accuracy_score(y_test, y_pred))
+            f1s_g.append(f1_score(y_test, y_pred, average="macro"))
+            t_total_g += duracion
+            m_total_g += memoria
+
+        filas.append(
+            {
+                "algoritmo": "GaussianNB",
+                "representacion": rep_nombre,
+                "params": "default",
+                "accuracy_mean": float(np.mean(accs_g)),
+                "f1_macro_mean": float(np.mean(f1s_g)),
+                "tiempo_total_s": t_total_g,
+                "memoria_media_mb": m_total_g / skf.n_splits,
+            }
+        )
+        print(
+            f"  GaussianNB -> acc={np.mean(accs_g):.4f}, f1={np.mean(f1s_g):.4f}, tiempo={t_total_g:.2f}s"
+        )
+
+        # Naive Bayes multinomial
+        accs_m = []
+        f1s_m = []
+        t_total_m = 0.0
+        m_total_m = 0.0
+        for train_idx, test_idx in skf.split(X, y_encoded):
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train, y_test = y_encoded[train_idx], y_encoded[test_idx]
+            modelo = MultinomialNB()
+            (_, y_pred), duracion, memoria = medir_memoria_y_tiempo(
+                lambda: (modelo.fit(X_train, y_train), modelo.predict(X_test))
+            )
+            accs_m.append(accuracy_score(y_test, y_pred))
+            f1s_m.append(f1_score(y_test, y_pred, average="macro"))
+            t_total_m += duracion
+            m_total_m += memoria
+
+        filas.append(
+            {
+                "algoritmo": "MultinomialNB",
+                "representacion": rep_nombre,
+                "params": "default",
+                "accuracy_mean": float(np.mean(accs_m)),
+                "f1_macro_mean": float(np.mean(f1s_m)),
+                "tiempo_total_s": t_total_m,
+                "memoria_media_mb": m_total_m / skf.n_splits,
+            }
+        )
+        print(
+            f"  MultinomialNB -> acc={np.mean(accs_m):.4f}, f1={np.mean(f1s_m):.4f}, tiempo={t_total_m:.2f}s"
+        )
+
+    df_clf = pd.DataFrame(filas)
+    df_clf.to_csv("resultados_clasificacion.csv", index=False)
+
+    ranking = df_clf.sort_values(
+        by=["accuracy_mean", "f1_macro_mean", "tiempo_total_s"],
+        ascending=[False, False, True],
+    )
+    mejor = ranking.iloc[0]
+    print(
+        "\nMejor clasificador:",
+        f"{mejor['algoritmo']} | {mejor['representacion']} | {mejor['params']} | "
+        f"acc={mejor['accuracy_mean']:.4f} | f1={mejor['f1_macro_mean']:.4f}",
+    )
+    print("Resultados guardados en resultados_clasificacion.csv")
+    return df_clf
+
+
+def imprimir_conclusiones(df_clustering, df_clasificacion):
+    print("\n=== Conclusiones automaticas ===")
+
+    best_kmeans = (
+        df_clustering[df_clustering["algoritmo"] == "KMeans"]
+        .sort_values(by=["ari", "nmi", "silhouette"], ascending=False)
+        .iloc[0]
+    )
+    best_em = (
+        df_clustering[df_clustering["algoritmo"] == "GaussianMixture"]
+        .sort_values(by=["ari", "nmi"], ascending=False)
+        .iloc[0]
+    )
+    print(
+        f"KMeans mejor -> {best_kmeans['representacion']} seed={int(best_kmeans['seed'])} "
+        f"ARI={best_kmeans['ari']:.4f} NMI={best_kmeans['nmi']:.4f}"
+    )
+    print(
+        f"EM(TF-IDF) mejor -> seed={int(best_em['seed'])} "
+        f"ARI={best_em['ari']:.4f} NMI={best_em['nmi']:.4f}"
+    )
+
+    top3 = df_clasificacion.sort_values(
+        by=["accuracy_mean", "f1_macro_mean", "tiempo_total_s"],
+        ascending=[False, False, True],
+    ).head(3)
+    print("\nTop 3 clasificacion (accuracy/f1/tiempo):")
+    for _, fila in top3.iterrows():
+        print(
+            f"- {fila['algoritmo']} | {fila['representacion']} | {fila['params']} | "
+            f"acc={fila['accuracy_mean']:.4f} f1={fila['f1_macro_mean']:.4f} "
+            f"tiempo={fila['tiempo_total_s']:.2f}s"
+        )
+
+
+def main():
+    df, X_text, _, y_encoded = cargar_datos("news_reducido.csv")
+    representaciones = construir_representaciones(X_text)
+    df_cluster = ejecutar_agrupamiento(df, representaciones, y_encoded)
+    df_clf = ejecutar_clasificacion(representaciones, y_encoded)
+    imprimir_conclusiones(df_cluster, df_clf)
+
+
+if __name__ == "__main__":
+    main()
