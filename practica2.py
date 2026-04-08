@@ -1,6 +1,5 @@
 import time
 import tracemalloc
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -8,15 +7,13 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.manifold import TSNE
-from sklearn.metrics import (
-    accuracy_score,
-    adjusted_rand_score,
-    calinski_harabasz_score,
-    davies_bouldin_score,
-    f1_score,
-    normalized_mutual_info_score,
-    silhouette_score,
-)
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import adjusted_rand_score
+from sklearn.metrics import calinski_harabasz_score
+from sklearn.metrics import davies_bouldin_score
+from sklearn.metrics import f1_score
+from sklearn.metrics import normalized_mutual_info_score
+from sklearn.metrics import silhouette_score
 from sklearn.mixture import GaussianMixture
 from sklearn.model_selection import StratifiedKFold
 from sklearn.naive_bayes import GaussianNB, MultinomialNB
@@ -25,7 +22,6 @@ from sklearn.preprocessing import LabelEncoder
 
 
 SEEDS = [0, 10, 42, 100]
-K_CLUSTERS = 4
 
 
 def medir_memoria_y_tiempo(func, *args, **kwargs):
@@ -107,7 +103,7 @@ def ejecutar_agrupamiento(df, representaciones, y_encoded):
     for rep_nombre, X in representaciones.items():
         print(f"\n[{rep_nombre}]")
         for seed in SEEDS:
-            kmeans = KMeans(n_clusters=K_CLUSTERS, random_state=seed, n_init=10)
+            kmeans = KMeans(n_clusters=4, random_state=seed, n_init=10)
             labels, duracion, memoria = medir_memoria_y_tiempo(kmeans.fit_predict, X)
             metricas = evaluar_clustering(X, labels, y_encoded)
 
@@ -131,7 +127,7 @@ def ejecutar_agrupamiento(df, representaciones, y_encoded):
     svd = TruncatedSVD(n_components=100, random_state=42)
     X_tfidf_red = svd.fit_transform(X_tfidf)
     for seed in SEEDS:
-        gmm = GaussianMixture(n_components=K_CLUSTERS, random_state=seed)
+        gmm = GaussianMixture(n_components=4, random_state=seed)
         labels_gmm, duracion, memoria = medir_memoria_y_tiempo(gmm.fit_predict, X_tfidf_red)
         metricas = {
             "silhouette": silhouette_score(X_tfidf_red, labels_gmm, sample_size=2000, random_state=42),
@@ -166,7 +162,7 @@ def ejecutar_agrupamiento(df, representaciones, y_encoded):
     )
 
     kmeans_best = KMeans(
-        n_clusters=K_CLUSTERS,
+        n_clusters=4,
         random_state=int(mejor["seed"]),
         n_init=10,
     )
@@ -186,7 +182,7 @@ def ejecutar_agrupamiento(df, representaciones, y_encoded):
     X_2d = tsne.fit_transform(X_tsne_red)
 
     plt.figure(figsize=(9, 6))
-    plt.scatter(X_2d[:, 0], X_2d[:, 1], c=labels_best, s=6, alpha=0.7)
+    plt.scatter(X_2d[:, 0], X_2d[:, 1], c=labels_best, s=6)
     plt.title("t-SNE de clusters (labels del mejor KMeans)")
     plt.xlabel("Dim 1")
     plt.ylabel("Dim 2")
@@ -338,48 +334,12 @@ def ejecutar_clasificacion(representaciones, y_encoded):
     return df_clf
 
 
-def imprimir_conclusiones(df_clustering, df_clasificacion):
-    print("\n=== Conclusiones automaticas ===")
-
-    best_kmeans = (
-        df_clustering[df_clustering["algoritmo"] == "KMeans"]
-        .sort_values(by=["ari", "nmi", "silhouette"], ascending=False)
-        .iloc[0]
-    )
-    best_em = (
-        df_clustering[df_clustering["algoritmo"] == "GaussianMixture"]
-        .sort_values(by=["ari", "nmi"], ascending=False)
-        .iloc[0]
-    )
-    print(
-        f"KMeans mejor -> {best_kmeans['representacion']} seed={int(best_kmeans['seed'])} "
-        f"ARI={best_kmeans['ari']:.4f} NMI={best_kmeans['nmi']:.4f}"
-    )
-    print(
-        f"EM(TF-IDF) mejor -> seed={int(best_em['seed'])} "
-        f"ARI={best_em['ari']:.4f} NMI={best_em['nmi']:.4f}"
-    )
-
-    top3 = df_clasificacion.sort_values(
-        by=["accuracy_mean", "f1_macro_mean", "tiempo_total_s"],
-        ascending=[False, False, True],
-    ).head(3)
-    print("\nTop 3 clasificacion (accuracy/f1/tiempo):")
-    for _, fila in top3.iterrows():
-        print(
-            f"- {fila['algoritmo']} | {fila['representacion']} | {fila['params']} | "
-            f"acc={fila['accuracy_mean']:.4f} f1={fila['f1_macro_mean']:.4f} "
-            f"tiempo={fila['tiempo_total_s']:.2f}s"
-        )
-
 
 def main():
     df, X_text, _, y_encoded = cargar_datos("news_reducido.csv")
     representaciones = construir_representaciones(X_text)
     df_cluster = ejecutar_agrupamiento(df, representaciones, y_encoded)
     df_clf = ejecutar_clasificacion(representaciones, y_encoded)
-    imprimir_conclusiones(df_cluster, df_clf)
-
 
 if __name__ == "__main__":
     main()
