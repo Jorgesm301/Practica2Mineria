@@ -80,7 +80,6 @@ def construir_representaciones(X_text):
 
 
 def evaluar_clustering(X, labels, y_true):
-    # CH/DB necesitan entrada densa; reducimos antes para evitar consumir GB de RAM.
     if hasattr(X, "toarray"):
         svd_eval = TruncatedSVD(n_components=50, random_state=42)
         X_eval_dense = svd_eval.fit_transform(X)
@@ -151,7 +150,6 @@ def ejecutar_agrupamiento(df, representaciones, y_encoded):
     df_clustering = pd.DataFrame(filas_clustering)
     df_clustering.to_csv("resultados_clustering.csv", index=False)
 
-    # Seleccion del mejor clustering para guardar asignaciones.
     mejores = df_clustering[df_clustering["algoritmo"] == "KMeans"].sort_values(
         by=["ari", "nmi", "silhouette"], ascending=False
     )
@@ -199,7 +197,6 @@ def ejecutar_clasificacion(representaciones, y_encoded):
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     filas = []
 
-    # Al menos 5 combinaciones para k-NN.
     configuraciones_knn = [
         {"n_neighbors": 1, "weights": "uniform", "p": 1},
         {"n_neighbors": 1, "weights": "uniform", "p": 2},
@@ -251,7 +248,6 @@ def ejecutar_clasificacion(representaciones, y_encoded):
                 f"acc={np.mean(accs):.4f}, f1={np.mean(f1s):.4f}, tiempo={t_total:.2f}s"
             )
 
-        # GaussianNB requiere denso; usamos reduccion para evitar explosion de memoria.
         svd_nb = TruncatedSVD(n_components=200, random_state=42)
         X_dense = svd_nb.fit_transform(X)
         accs_g = []
@@ -285,7 +281,6 @@ def ejecutar_clasificacion(representaciones, y_encoded):
             f"  GaussianNB -> acc={np.mean(accs_g):.4f}, f1={np.mean(f1s_g):.4f}, tiempo={t_total_g:.2f}s"
         )
 
-        # Naive Bayes multinomial
         accs_m = []
         f1s_m = []
         t_total_m = 0.0
