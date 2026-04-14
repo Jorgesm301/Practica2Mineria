@@ -50,11 +50,6 @@ def cargar_datos(path_csv="news_reducido.csv"):
 
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)
-
-    print("Forma dataset:", df.shape)
-    print("Distribucion de clases:\n", y.value_counts())
-    print("Clases codificadas:", list(le.classes_))
-    print("Ejemplo text:", X_text.iloc[0][:220], "...")
     return df, X_text, y, y_encoded
 
 
@@ -72,10 +67,6 @@ def construir_representaciones(X_text):
         "Frecuencia": X_freq,
         "TF-IDF": X_tfidf,
     }
-
-    print("\nResumen representaciones:")
-    for nombre, X_rep in representaciones.items():
-        print(f"- {nombre}: {X_rep.shape}")
     return representaciones
 
 
@@ -154,10 +145,6 @@ def ejecutar_agrupamiento(df, representaciones, y_encoded):
         by=["ari", "nmi", "silhouette"], ascending=False
     )
     mejor = mejores.iloc[0]
-    print(
-        "\nMejor KMeans:",
-        f"rep={mejor['representacion']} seed={int(mejor['seed'])} ARI={mejor['ari']:.4f} NMI={mejor['nmi']:.4f}",
-    )
 
     kmeans_best = KMeans(
         n_clusters=4,
@@ -320,11 +307,6 @@ def ejecutar_clasificacion(representaciones, y_encoded):
         ascending=[False, False, True],
     )
     mejor = ranking.iloc[0]
-    print(
-        "\nMejor clasificador:",
-        f"{mejor['algoritmo']} | {mejor['representacion']} | {mejor['params']} | "
-        f"acc={mejor['accuracy_mean']:.4f} | f1={mejor['f1_macro_mean']:.4f}",
-    )
     print("Resultados guardados en resultados_clasificacion.csv")
     return df_clf
 
